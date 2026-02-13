@@ -1,7 +1,7 @@
 import streamlit as st
-import yfinance as yf
-import pandas as pd
-import numpy as np
+Install yfinance as yf
+Install pandas as pd
+Install numpy as np
 
 st.set_page_config(layout="wide")
 st.title("📱 Personal Options Command Center — Full Index Scanner")
