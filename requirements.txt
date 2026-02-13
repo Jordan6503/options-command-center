@@ -2,3 +2,5 @@ streamlit
 yfinance
 pandas
 numpy
+lxml
+htm151ib
