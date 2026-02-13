@@ -3,121 +3,94 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 
-st.set_page_config(layout="wide")
-st.title("📱 Personal Options Command Center — Full Index Scanner")
+st.set_page_config(page_title="Options Command Center", layout="wide")
+st.title("📈 Options Command Center")
 
-@st.cache_data(ttl=900)
-def get_sp500():
-    table = pd.read_html("https://en.wikipedia.org/wiki/List_of_S%26P_500_companies")
-    return table[0]["Symbol"].tolist()
+# Combined Universe (S&P + Dow + Nasdaq sample large caps)
+TICKERS = list(set([
+    "AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA",
+    "BRK-B","JPM","V","UNH","HD","PG","MA","DIS",
+    "BAC","XOM","KO","PFE","PEP","INTC","IBM",
+    "GS","MCD","NKE","BA","ADBE","AVGO","COST"
+]))
 
-@st.cache_data(ttl=900)
-def get_dow():
-    table = pd.read_html("https://en.wikipedia.org/wiki/Dow_Jones_Industrial_Average")
-    return table[1]["Symbol"].tolist()
-
-@st.cache_data(ttl=900)
-def get_nasdaq100():
-    table = pd.read_html("https://en.wikipedia.org/wiki/NASDAQ-100")
-    return table[3]["Ticker"].tolist()
-
-def rsi(series, period=14):
-    delta = series.diff()
-    gain = delta.clip(lower=0)
-    loss = -1 * delta.clip(upper=0)
-    avg_gain = gain.rolling(period).mean()
-    avg_loss = loss.rolling(period).mean()
-    rs = avg_gain / avg_loss
+def calculate_rsi(data, period=14):
+    delta = data.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(period).mean()
+    rs = gain / loss
     return 100 - (100 / (1 + rs))
 
-def get_sp500():
-    return [
-        "AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA",
-        "BRK-B","JPM","V","UNH","HD","PG","MA","DIS",
-        "BAC","XOM","KO","PFE","PEP"
-    ]
-def get_dow():
-    return [
-        "AAPL","MSFT","JPM","V","HD","PG","UNH","DIS",
-        "KO","INTC","IBM","GS","MCD","NKE","BA"
-    ]
-def get_nasdaq():
-    return [
-        "AAPL","MSFT","NVDA","AMZN","META",
-        "TSLA","GOOGL","ADBE","AVGO","COST"
-    ]
+def scan_market():
+    results = []
 
-# Combine and remove duplicates
-tickers = list(set(sp500 + dow + nasdaq100))
+    for ticker in TICKERS:
+        try:
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="6mo")
 
-results = []
+            if len(hist) < 50:
+                continue
 
-st.info("Scanning S&P 500 + Dow + Nasdaq-100... Please wait.")
+            close = hist["Close"]
+            rsi = calculate_rsi(close).iloc[-1]
 
-progress = st.progress(0)
-total = len(tickers)
+            daily_change = ((close.iloc[-1] - close.iloc[-2]) / close.iloc[-2]) * 100
+            five_day_change = ((close.iloc[-1] - close.iloc[-5]) / close.iloc[-5]) * 100
 
-for i, ticker in enumerate(tickers):
-    try:
-        df = yf.download(ticker, period="6mo", progress=False)
+            ma50 = close.rolling(50).mean().iloc[-1]
+            ma200 = close.rolling(200).mean().iloc[-1] if len(close) >= 200 else ma50
 
-        if len(df) < 200:
+            # Classification Logic
+            if abs(daily_change) > 2 and rsi > 55:
+                category = "⚡ Day Trade Call"
+            elif abs(daily_change) > 2 and rsi < 45:
+                category = "⚡ Day Trade Put"
+            elif five_day_change > 3 and rsi > 50:
+                category = "🔄 Swing Call"
+            elif five_day_change < -3 and rsi < 50:
+                category = "🔄 Swing Put"
+            elif ma50 > ma200:
+                category = "🏦 Long-Term Bullish"
+            else:
+                category = "🏦 Long-Term Bearish"
+
+            results.append([
+                ticker,
+                round(daily_change,2),
+                round(five_day_change,2),
+                round(rsi,2),
+                category
+            ])
+
+        except:
             continue
 
-        df["50MA"] = df["Close"].rolling(50).mean()
-        df["200MA"] = df["Close"].rolling(200).mean()
-        df["RSI"] = rsi(df["Close"])
+    df = pd.DataFrame(results, columns=[
+        "Ticker",
+        "Daily %",
+        "5-Day %",
+        "RSI",
+        "Signal"
+    ])
 
-        latest = df.iloc[-1]
-        prev_close = df["Close"].iloc[-2]
-        percent_change = ((latest["Close"] - prev_close) / prev_close) * 100
+    return df.sort_values(by="Daily %", ascending=False)
 
-        score = 0
-        direction = "Neutral"
+df = scan_market()
 
-        if latest["Close"] > latest["50MA"]:
-            score += 25
-        if latest["Close"] > latest["200MA"]:
-            score += 25
-        if 40 < latest["RSI"] < 70:
-            score += 25
-        if df["Volume"].iloc[-1] > df["Volume"].rolling(20).mean().iloc[-1]:
-            score += 25
+st.subheader("📈 Top Gainers")
+st.dataframe(df.sort_values(by="Daily %", ascending=False).head(5))
 
-        if latest["Close"] > latest["50MA"] and latest["RSI"] > 50:
-            direction = "Bullish"
-        elif latest["Close"] < latest["50MA"] and latest["RSI"] < 50:
-            direction = "Bearish"
+st.subheader("📉 Top Losers")
+st.dataframe(df.sort_values(by="Daily %").head(5))
 
-        results.append({
-            "Ticker": ticker,
-            "Price": round(latest["Close"], 2),
-            "% Change": round(percent_change, 2),
-            "Score": score,
-            "Direction": direction
-        })
+st.subheader("⚡ Day Trade Setups")
+st.dataframe(df[df["Signal"].str.contains("Day Trade")])
 
-    except:
-        pass
+st.subheader("🔄 Swing Trade Setups")
+st.dataframe(df[df["Signal"].str.contains("Swing")])
 
-    progress.progress((i + 1) / total)
+st.subheader("🏦 Long-Term Options Holds")
+st.dataframe(df[df["Signal"].str.contains("Long-Term")])
 
-df_results = pd.DataFrame(results)
-
-gainers = df_results.sort_values("% Change", ascending=False)
-losers = df_results.sort_values("% Change")
-scored = df_results.sort_values("Score", ascending=False)
-
-st.header("🔥 Top 20 Gainers Today")
-st.dataframe(gainers.head(20))
-
-st.header("🔻 Top 20 Losers Today")
-st.dataframe(losers.head(20))
-
-st.header("📈 Strongest Options Setups (Score 75+)")
-st.dataframe(scored[scored["Score"] >= 75].head(20))
-
-st.header("🔻 Bearish / Put Candidates")
-st.dataframe(scored[scored["Direction"] == "Bearish"].head(20))
-
-st.caption("Educational use only. Not financial advice.")
+st.success("Scan Complete")
