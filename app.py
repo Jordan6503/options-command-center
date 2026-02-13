@@ -30,9 +30,22 @@ def rsi(series, period=14):
     rs = avg_gain / avg_loss
     return 100 - (100 / (1 + rs))
 
-sp500 = get_sp500()
-dow = get_dow()
-nasdaq100 = get_nasdaq100()
+def get_sp500():
+    return [
+        "AAPL","MSFT","GOOGL","AMZN","NVDA","META","TSLA",
+        "BRK-B","JPM","V","UNH","HD","PG","MA","DIS",
+        "BAC","XOM","KO","PFE","PEP"
+    ]
+def get_dow():
+    return [
+        "AAPL","MSFT","JPM","V","HD","PG","UNH","DIS",
+        "KO","INTC","IBM","GS","MCD","NKE","BA"
+    ]
+def get_nasdaq():
+    return [
+        "AAPL","MSFT","NVDA","AMZN","META",
+        "TSLA","GOOGL","ADBE","AVGO","COST"
+    ]
 
 # Combine and remove duplicates
 tickers = list(set(sp500 + dow + nasdaq100))
